@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use("/api/calls", twilioRoutes);
-app.use("/api/tools", verifyWebhookSignature, toolsRoutes);
+app.use("/api/tools", toolsRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

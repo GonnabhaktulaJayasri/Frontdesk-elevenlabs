@@ -22,9 +22,9 @@ let appointments = [];
 
 // Mock doctors/availability
 const doctors = [
-  { id: 'DOC001', name: 'Dr. Sarah Johnson', specialty: 'General Practice' },
-  { id: 'DOC002', name: 'Dr. Michael Chen', specialty: 'Cardiology' },
-  { id: 'DOC003', name: 'Dr. Emily Rodriguez', specialty: 'Pediatrics' },
+  { id: 'DOC001', name: 'Dr. Sarah Johnson', specialty: 'primary care' },
+  { id: 'DOC002', name: 'Dr. Michael Chen', specialty: 'mental health' },
+  { id: 'DOC003', name: 'Dr. Emily Rodriguez', specialty: 'primary care' },
 ];
 
 // Generate available time slots for a given date
