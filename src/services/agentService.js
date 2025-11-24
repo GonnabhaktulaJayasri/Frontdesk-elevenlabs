@@ -84,7 +84,7 @@ import "dotenv/config";
 
 // Initialize ElevenLabs client
 const elevenLabs = new ElevenLabsClient({
-  apiKey: process.env.ELEVENLABS_API_KEY,
+  apiKey: 'sk_00ed21dbd40e8ef9c2345f45b2a1f5ef3f23e056d2a5879b',
 });
 
 /**

@@ -22,6 +22,7 @@
     "@11labs/client": "^0.2.0",
     "@elevenlabs/elevenlabs-js": "^2.24.1",
     "axios": "^1.13.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "fastify": "^5.6.2",
