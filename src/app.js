@@ -2,14 +2,13 @@
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import twilioRoutes from "./src/routes/twilio.js";
-import toolsRoutes from "./src/routes/tools.js";
-import authRoutes from "./src/routes/auth.js";
-import agentConfigRoutes from "./src/routes/agentConfig.js";
-import { verifyWebhookSignature } from "./src/middleware/webhookAuth.js";
-import dotenv from "dotenv";
-
-dotenv.config();
+import callRoutes from "../src/routes/calls.js";
+import toolsRoutes from "../src/routes/tools.js";
+import authRoutes from "../src/routes/auth.js";
+import agentConfigRoutes from "../src/routes/agent.js";
+import scheduledCallRoutes from "../src/routes/scheduledCalls.js";
+import voiceRoutes from "./routes/voices.js"; 
+import connectDB from "./config/db.js";
 
 const app = express();
 
@@ -26,11 +25,16 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 
+connectDB();
+
+
 // Routes
-app.use("/api/calls", twilioRoutes);
-app.use("/api/tools", toolsRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/calls", callRoutes);
+app.use("/api/tools", toolsRoutes);
 app.use("/api/agent", agentConfigRoutes);
+app.use("/api/scheduled-calls", scheduledCallRoutes);
+app.use("/api/voices", voiceRoutes);
 
 // Error handling
 app.use((error, req, res, next) => {

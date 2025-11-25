@@ -1,6 +1,5 @@
-// services/emrService.js
-// Pure FHIR EMR service - all data from FHIR, no in-memory storage
 import fetch from 'node-fetch';
+import scheduledCallService from './scheduledCallService.js';
 
 const FHIR_BASE_URL = process.env.FHIR_BASE_URL || 'https://hapi.fhir.org/baseR4';
 
@@ -183,6 +182,65 @@ export const createPatient = async (patientData) => {
     throw error;
   }
 };
+// ============================================
+// GET APPOINTMENT HISTORY FROM FHIR
+// ============================================
+export const getAppointmentHistory = async (patientId, includePast = false) => {
+  try {
+    console.log(`📋 Fetching appointment history for patient: ${patientId}`);
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get upcoming appointments
+    const upcomingBundle = await fhirRequest(
+      `/Appointment?patient=Patient/${patientId}&date=ge${today}&_sort=date`
+    );
+
+    const upcoming = upcomingBundle.entry?.map((entry) => {
+      const apt = entry.resource;
+      return {
+        id: apt.id,
+        date: apt.start?.split('T')[0],
+        time: apt.start?.split('T')[1]?.slice(0, 5),
+        status: apt.status,
+        reason: apt.description,
+      };
+    }) || [];
+
+    let past = [];
+    if (includePast) {
+      const pastBundle = await fhirRequest(
+        `/Appointment?patient=Patient/${patientId}&date=lt${today}&_sort=-date&_count=10`
+      );
+
+      past = pastBundle.entry?.map((entry) => {
+        const apt = entry.resource;
+        return {
+          id: apt.id,
+          date: apt.start?.split('T')[0],
+          time: apt.start?.split('T')[1]?.slice(0, 5),
+          status: apt.status,
+          reason: apt.description,
+        };
+      }) || [];
+    }
+
+    const message = upcoming.length > 0
+      ? `You have ${upcoming.length} upcoming appointment(s)${includePast && past.length > 0 ? ` and ${past.length} past appointment(s)` : ''}.`
+      : 'You have no upcoming appointments.';
+
+    return {
+      appointments: [...upcoming, ...past],
+      upcoming,
+      past,
+      message,
+    };
+
+  } catch (error) {
+    console.error('Error fetching appointment history:', error);
+    throw error;
+  }
+};
 
 // ============================================
 // CHECK AVAILABILITY - Fetches doctors from FHIR
@@ -201,7 +259,7 @@ export const checkAvailability = async (doctorId, date, specialty) => {
 
     // Get doctors from FHIR
     const allDoctors = await getDoctors();
-    
+
     if (allDoctors.length === 0) {
       console.log('❌ No doctors available');
       return [];
@@ -277,7 +335,7 @@ export const bookAppointment = async (appointmentData) => {
 
     // Build datetime
     const startDateTime = `${appointmentData.date}T${appointmentData.time}:00`;
-    
+
     // Calculate end time (30 min)
     const [hours, minutes] = appointmentData.time.split(':').map(Number);
     const endHours = minutes >= 30 ? hours + 1 : hours;
@@ -312,7 +370,7 @@ export const bookAppointment = async (appointmentData) => {
 
     console.log(`✅ Appointment created in FHIR: ${createdAppointment.id}`);
 
-    return {
+    const result = {
       success: true,
       id: createdAppointment.id,
       confirmation_number: confirmationNumber,
@@ -320,6 +378,22 @@ export const bookAppointment = async (appointmentData) => {
       date: appointmentData.date,
       time: appointmentData.time,
     };
+
+    // Schedule appointment reminders
+    try {
+      await scheduledCallService.scheduleAppointmentReminders({
+        phone: appointmentData.phone,
+        date: appointmentData.date,
+        time: appointmentData.time,
+        appointmentId: createdAppointment.id,
+        patientId: appointmentData.patient_id,
+        doctorName: doctor.name,
+      });
+    } catch (reminderError) {
+      console.error('Failed to schedule reminders:', reminderError);
+      // Don't fail the booking if reminders fail
+    }
+    return result;
   } catch (error) {
     console.error('Booking failed:', error.message);
     throw error;
@@ -341,7 +415,7 @@ export const updateAppointment = async (appointmentId, updates) => {
       const date = updates.new_date || existingAppointment.start.split('T')[0];
       const time = updates.new_time || existingAppointment.start.split('T')[1].slice(0, 5);
       existingAppointment.start = `${date}T${time}:00`;
-      
+
       const [hours, minutes] = time.split(':').map(Number);
       const endHours = minutes >= 30 ? hours + 1 : hours;
       const endMinutes = minutes >= 30 ? minutes - 30 : minutes + 30;
@@ -391,7 +465,15 @@ export const cancelAppointment = async (appointmentId) => {
     });
 
     console.log(`✅ Appointment cancelled: ${appointmentId}`);
-    return { success: true, message: 'Appointment cancelled' };
+    return {
+      success: true,
+      appointment: {
+        id: appointmentId,
+        date: existingAppointment.start?.split('T')[0],
+        time: existingAppointment.start?.split('T')[1]?.slice(0, 5),
+        phone,
+      },
+    };
   } catch (error) {
     console.error('Cancellation failed:', error.message);
     throw error;

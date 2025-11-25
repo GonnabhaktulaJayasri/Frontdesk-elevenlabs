@@ -141,4 +141,71 @@ module.exports = [
       required: ['appointment_id'],
     },
   },
+  {
+    type: 'webhook',
+    name: 'schedule_callback',
+    description: 'Schedule a callback when patient requests "call me back in X minutes". Use when patient wants to be called back later.',
+    url: `${process.env.SERVER_URL}/tools/schedule-callback`,
+    method: 'POST',
+    body_schema: {
+      type: 'object',
+      properties: {
+        phone_number: {
+          type: 'string',
+          description: 'Patient phone number to call back',
+        },
+        delay_minutes: {
+          type: 'number',
+          description: 'Number of minutes to wait before calling back (e.g., 5, 10, 30)',
+        },
+        reason: {
+          type: 'string',
+          description: 'Reason for callback (optional)',
+        },
+      },
+      required: ['phone_number', 'delay_minutes'],
+    },
+  },
+  {
+    type: 'webhook',
+    name: 'get_appointment_history',
+    description: 'Retrieve patient appointment history from EMR. Use when patient asks about their past or upcoming appointments.',
+    url: `${process.env.SERVER_URL}/tools/appointment-history`,
+    method: 'POST',
+    body_schema: {
+      type: 'object',
+      properties: {
+        patient_id: {
+          type: 'string',
+          description: 'Patient ID from get_patient_info',
+        },
+        include_past: {
+          type: 'boolean',
+          description: 'Include past appointments (default: false, only upcoming)',
+        },
+      },
+      required: ['patient_id'],
+    },
+  },
+  {
+    type: 'webhook',
+    name: 'cancel_appointment',
+    description: 'Cancel an existing appointment. Use when patient wants to cancel their appointment.',
+    url: `${process.env.SERVER_URL}/tools/cancel-appointment`,
+    method: 'POST',
+    body_schema: {
+      type: 'object',
+      properties: {
+        appointment_id: {
+          type: 'string',
+          description: 'Appointment ID to cancel',
+        },
+        reason: {
+          type: 'string',
+          description: 'Reason for cancellation (optional)',
+        },
+      },
+      required: ['appointment_id'],
+    },
+  },
 ];

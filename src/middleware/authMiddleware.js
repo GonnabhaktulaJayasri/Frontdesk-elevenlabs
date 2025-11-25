@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-export const verifyWebhookSignature = (req, res, next) => {
+export const authMiddleware = (req, res, next) => {
   console.log("====== WEBHOOK RECEIVED ======");
   console.log("Headers:", req.headers);
   console.log("Signature from Header:", req.headers["x-elevenlabs-signature"]);

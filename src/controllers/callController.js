@@ -1,28 +1,9 @@
-// routes/twilio.js
-// Handles inbound and outbound calls using ElevenLabs SDK
-import express from "express";
-import twilio from "twilio";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
-
-const router = express.Router();
-const { VoiceResponse } = twilio.twiml;
-
-// Initialize ElevenLabs client
-const elevenLabsClient = new ElevenLabsClient({
-  apiKey: 'sk_00ed21dbd40e8ef9c2345f45b2a1f5ef3f23e056d2a5879b',
-});
-
-// Initialize Twilio client (for status callbacks and other Twilio operations)
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+import { elevenLabsClient, twilioClient, VoiceResponse } from "../config/clients.js";
 
 // ============================================
-// POST /api/calls/inbound
 // Handle inbound calls from Twilio
 // ============================================
-router.post("/inbound", (req, res) => {
+export const inboundCall = (req, res) => {
   console.log("====================================");
   console.log("====== INBOUND CALL RECEIVED ======");
   console.log("Caller Phone:", req.body.From);
@@ -70,19 +51,18 @@ router.post("/inbound", (req, res) => {
     res.type("text/xml");
     res.send(twimlString);
   } catch (error) {
-    console.error("❌ ERROR in /inbound route:", error);
+    console.error("❌ ERROR in inbound call:", error);
     const errorTwiml = new VoiceResponse();
     errorTwiml.say("An error occurred. Please try again later.");
     res.type("text/xml");
     res.send(errorTwiml.toString());
   }
-});
+};
 
 // ============================================
-// POST /api/calls/outbound
 // Make outbound call using ElevenLabs SDK
 // ============================================
-router.post("/outbound", async (req, res) => {
+export const outboundCall = async (req, res) => {
   try {
     const { to_number, agent_id, agent_phone_number_id } = req.body;
 
@@ -139,13 +119,12 @@ router.post("/outbound", async (req, res) => {
       error: error.message,
     });
   }
-});
+};
 
 // ============================================
-// POST /api/calls/outbound-batch
-// Make multiple outbound calls
+// Make multiple outbound calls (batch)
 // ============================================
-router.post("/outbound-batch", async (req, res) => {
+export const outboundBatchCall = async (req, res) => {
   try {
     const { phone_numbers, agent_id, agent_phone_number_id } = req.body;
 
@@ -213,13 +192,12 @@ router.post("/outbound-batch", async (req, res) => {
       error: error.message,
     });
   }
-});
+};
 
 // ============================================
-// POST /api/calls/outbound-twiml (Legacy - for direct Twilio integration)
-// Returns TwiML for outbound calls if using Twilio's call create method
+// Returns TwiML for outbound calls (Legacy)
 // ============================================
-router.post("/outbound-twiml", (req, res) => {
+export const outboundTwiml = (req, res) => {
   console.log("📞 Outbound TwiML requested");
 
   try {
@@ -258,14 +236,12 @@ router.post("/outbound-twiml", (req, res) => {
     res.type("text/xml");
     res.send(errorTwiml.toString());
   }
-});
+};
 
 // ============================================
-// POST /api/calls/outbound-legacy
-// Legacy outbound call using Twilio client directly
-// (Keep for backwards compatibility)
+// Legacy outbound call using Twilio directly
 // ============================================
-router.post("/outbound-legacy", async (req, res) => {
+export const outboundLegacyCall = async (req, res) => {
   try {
     const { to_number } = req.body;
 
@@ -300,13 +276,12 @@ router.post("/outbound-legacy", async (req, res) => {
       error: error.message,
     });
   }
-});
+};
 
 // ============================================
-// POST /api/calls/status
-// Call status webhook
+// Handle call status webhook
 // ============================================
-router.post("/status", (req, res) => {
+export const handleCallStatus = (req, res) => {
   const { CallSid, CallStatus, CallDuration, ErrorCode, ErrorMessage } = req.body;
 
   console.log("====================================");
@@ -323,13 +298,12 @@ router.post("/status", (req, res) => {
   console.log("====================================");
 
   res.sendStatus(200);
-});
+};
 
 // ============================================
-// GET /api/calls/phone-numbers
 // List available phone numbers from ElevenLabs
 // ============================================
-router.get("/phone-numbers", async (req, res) => {
+export const getPhoneNumbers = async (req, res) => {
   try {
     // Note: This endpoint depends on ElevenLabs SDK support
     // You may need to use the API directly if not available in SDK
@@ -356,6 +330,109 @@ router.get("/phone-numbers", async (req, res) => {
       error: error.message,
     });
   }
-});
+};
 
-export default router;
+// ============================================
+// Get call logs (placeholder for future implementation)
+// ============================================
+export const callLogs = async (req, res) => {
+  try {
+    // Fetch call logs from Twilio
+    const calls = await twilioClient.calls.list({ limit: 20 });
+
+    const logs = calls.map(call => ({
+      sid: call.sid,
+      from: call.from,
+      to: call.to,
+      status: call.status,
+      duration: call.duration,
+      startTime: call.startTime,
+      endTime: call.endTime,
+    }));
+
+    res.json({
+      success: true,
+      calls: logs,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching call logs:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// End/terminate an ongoing call
+// ============================================
+export const endCall = async (req, res) => {
+  try {
+    const { call_sid } = req.body;
+
+    if (!call_sid) {
+      return res.status(400).json({
+        success: false,
+        error: "call_sid is required",
+      });
+    }
+
+    console.log(`🔚 Ending call: ${call_sid}`);
+
+    await twilioClient.calls(call_sid).update({ status: 'completed' });
+
+    console.log(`✅ Call ended: ${call_sid}`);
+
+    res.json({
+      success: true,
+      message: `Call ${call_sid} ended`,
+    });
+  } catch (error) {
+    console.error("❌ Error ending call:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+// ============================================
+// Transfer call to another number
+// ============================================
+export const transferCall = async (req, res) => {
+  try {
+    const { call_sid, to_number } = req.body;
+
+    if (!call_sid || !to_number) {
+      return res.status(400).json({
+        success: false,
+        error: "call_sid and to_number are required",
+      });
+    }
+
+    console.log(`📞 Transferring call ${call_sid} to ${to_number}`);
+
+    // Generate TwiML for transfer
+    const twiml = new VoiceResponse();
+    twiml.say("Please hold while we transfer your call.");
+    twiml.dial(to_number);
+
+    // Update the call with new TwiML
+    await twilioClient.calls(call_sid).update({
+      twiml: twiml.toString(),
+    });
+
+    console.log(`✅ Call transferred to ${to_number}`);
+
+    res.json({
+      success: true,
+      message: `Call transferred to ${to_number}`,
+    });
+  } catch (error) {
+    console.error("❌ Error transferring call:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
