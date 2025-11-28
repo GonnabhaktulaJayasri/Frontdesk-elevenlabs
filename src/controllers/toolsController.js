@@ -13,6 +13,7 @@ import {
   cancelAppointment,
 } from "../services/emrService.js";
 import scheduledCallService from "../services/scheduledCallService.js";
+import Hospital from '../models/hospital.js';
 
 // PATIENT MANAGEMENT
 // ============================================
@@ -823,6 +824,62 @@ export const getPatientAppointmentHistory = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Unable to retrieve appointment history',
+    });
+  }
+};
+
+export const getTransferTarget = async (req, res) => {
+  try {
+    const { situation, caller_phone } = req.body;
+    
+    console.log(`🔀 Transfer request - Situation: ${situation}`);
+    
+    // Try to identify hospital from caller context
+    // In production, you'd get this from the call context
+    let hospitalId = req.body.hospital_id;
+    
+    // If no hospital ID, try to find by Twilio number
+    if (!hospitalId && req.body.twilio_number) {
+      const hospital = await Hospital.findOne({ 
+        twilioPhoneNumber: req.body.twilio_number 
+      });
+      hospitalId = hospital?._id;
+    }
+    
+    if (!hospitalId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not identify hospital for transfer',
+        fallback_message: 'I apologize, but I cannot transfer you at this time. Please call back during business hours.',
+      });
+    }
+    
+    const target = await getTransferTarget(hospitalId, situation);
+    
+    if (!target) {
+      return res.json({
+        success: false,
+        message: 'No staff available for transfer',
+        fallback_message: 'I apologize, but no one is available to take your call right now. Please call back during business hours or leave a message.',
+      });
+    }
+    
+    res.json({
+      success: true,
+      transfer_to: {
+        name: target.name,
+        phone: target.phone,
+        extension: target.extension,
+        role: target.role,
+      },
+      message: `Transferring to ${target.name}`,
+    });
+    
+  } catch (error) {
+    console.error('Error getting transfer target:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 };

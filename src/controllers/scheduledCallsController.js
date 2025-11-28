@@ -29,9 +29,29 @@ export const getUpcomingScheduledCalls = async (req, res) => {
 // ============================================
 export const scheduleHospitalCall = async (req, res) => {
   try {
-    const { phone_number, scheduled_time, reason, metadata } = req.body;
+    const { 
+      phone_number, 
+      scheduled_time, 
+      reason,
+      // Personalization fields - these need to go into metadata!
+      patient_name,
+      call_reason,
+      specialty,
+      appointment_date,
+      appointment_time,
+      doctor_name,
+      patient_id,
+      // Additional metadata
+      metadata = {} 
+    } = req.body;
     
-    console.log('📅 Hospital scheduling call:', { phone_number, scheduled_time, reason });
+    console.log('📅 Hospital scheduling call:', { 
+      phone_number, 
+      scheduled_time, 
+      reason,
+      patient_name,
+      call_reason 
+    });
     
     if (!phone_number || !scheduled_time) {
       return res.status(400).json({
@@ -49,14 +69,29 @@ export const scheduleHospitalCall = async (req, res) => {
       });
     }
     
+    // Combine all personalization data into metadata
+    const fullMetadata = {
+      ...metadata,
+      // Personalization fields for outbound call
+      patientName: patient_name || metadata.patientName || metadata.patient_name || '',
+      callReason: call_reason || metadata.callReason || metadata.call_reason || 'general',
+      specialty: specialty || metadata.specialty || process.env.CURRENT_SPECIALTY || 'primaryCare',
+      appointmentDate: appointment_date || metadata.appointmentDate || '',
+      appointmentTime: appointment_time || metadata.appointmentTime || '',
+      doctorName: doctor_name || metadata.doctorName || '',
+      patientId: patient_id || metadata.patientId || '',
+    };
+    
     const scheduledCall = await scheduledCallService.scheduleHospitalCall(
       phone_number,
       scheduled_time,
       reason || 'Hospital scheduled call',
-      metadata
+      fullMetadata
     );
     
     console.log(`✅ Call scheduled: ${scheduledCall._id}`);
+    console.log(`   Call Reason: ${fullMetadata.callReason}`);
+    console.log(`   Patient: ${fullMetadata.patientName}`);
     
     res.json({
       success: true,
@@ -67,6 +102,8 @@ export const scheduleHospitalCall = async (req, res) => {
         call_type: scheduledCall.callType,
         status: scheduledCall.status,
         reason: scheduledCall.reason,
+        patient_name: fullMetadata.patientName,
+        call_reason: fullMetadata.callReason,
       },
       message: `Call scheduled for ${scheduledCall.scheduledTime}`,
     });
@@ -313,4 +350,49 @@ export const getScheduledCallsStats = async (req, res) => {
       error: error.message 
     });
   }
+};
+// ============================================
+// GET AVAILABLE CALL REASONS - NEW
+// ============================================
+export const getCallReasons = (req, res) => {
+  res.json({
+    success: true,
+    call_reasons: [
+      { 
+        id: "general", 
+        name: "General Call", 
+        description: "General purpose outbound call",
+      },
+      { 
+        id: "appointment_reminder", 
+        name: "Appointment Reminder", 
+        description: "Remind patient of upcoming appointment",
+      },
+      { 
+        id: "follow_up", 
+        name: "Follow Up", 
+        description: "Follow up on recent visit",
+      },
+      { 
+        id: "results_ready", 
+        name: "Results Ready", 
+        description: "Notify patient that results are ready",
+      },
+      { 
+        id: "reschedule", 
+        name: "Reschedule", 
+        description: "Need to reschedule appointment",
+      },
+      { 
+        id: "wellness_check", 
+        name: "Wellness Check", 
+        description: "Check in on patient wellness",
+      },
+      { 
+        id: "prescription", 
+        name: "Prescription Refill", 
+        description: "Prescription refill reminder",
+      },
+    ],
+  });
 };

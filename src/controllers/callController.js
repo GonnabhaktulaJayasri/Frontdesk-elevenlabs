@@ -1,7 +1,11 @@
 import { elevenLabsClient, twilioClient, VoiceResponse } from "../config/clients.js";
+import { buildOutboundCallData } from "./personalizationController.js";
 
 // ============================================
 // Handle inbound calls from Twilio
+// Note: For inbound call personalization, configure the webhook in ElevenLabs
+// Agent Settings > Security > Enable "Fetch conversation initiation data"
+// Set webhook URL to: {YOUR_SERVER_URL}/api/calls/personalization-webhook
 // ============================================
 export const inboundCall = (req, res) => {
   console.log("====================================");
@@ -33,13 +37,14 @@ export const inboundCall = (req, res) => {
     const connect = twiml.connect();
     const stream = connect.stream({ url: websocketUrl });
 
-    // Add parameters
+    // Add parameters - these are available as system variables in ElevenLabs
     stream.parameter({ name: "caller_phone", value: From });
     stream.parameter({ name: "call_sid", value: CallSid });
     stream.parameter({
       name: "custom_data",
       value: JSON.stringify({
         source: "twilio_inbound",
+        call_direction: "inbound",
         timestamp: new Date().toISOString(),
       }),
     });
@@ -60,11 +65,22 @@ export const inboundCall = (req, res) => {
 };
 
 // ============================================
-// Make outbound call using ElevenLabs SDK
+// Make outbound call using ElevenLabs SDK with personalization
 // ============================================
 export const outboundCall = async (req, res) => {
   try {
-    const { to_number, agent_id, agent_phone_number_id } = req.body;
+    const { 
+      to_number, 
+      agent_id, 
+      agent_phone_number_id,
+      // New personalization options
+      patient_name,
+      patient_id,
+      call_reason,
+      specialty,
+      custom_first_message,
+      custom_variables,
+    } = req.body;
 
     if (!to_number) {
       return res.status(400).json({
@@ -92,17 +108,33 @@ export const outboundCall = async (req, res) => {
     }
 
     console.log("====================================");
-    console.log("📞 Making outbound call using ElevenLabs SDK");
+    console.log("📞 Making OUTBOUND call using ElevenLabs SDK");
     console.log("To Number:", to_number);
     console.log("Agent ID:", agentId);
     console.log("Phone Number ID:", phoneNumberId);
+    console.log("Patient Name:", patient_name || "Not provided");
+    console.log("Call Reason:", call_reason || "general");
     console.log("====================================");
 
-    // Make outbound call using ElevenLabs SDK
+    // Build personalization data for outbound call
+    const personalizationData = buildOutboundCallData({
+      patientName: patient_name || "there",
+      patientId: patient_id || "",
+      patientPhone: to_number,
+      callReason: call_reason || "general",
+      specialty: specialty || process.env.CURRENT_SPECIALTY || "primaryCare",
+      customFirstMessage: custom_first_message,
+      additionalVariables: custom_variables || {},
+    });
+
+    console.log("🎯 Personalization Data:", JSON.stringify(personalizationData, null, 2));
+
+    // Make outbound call using ElevenLabs SDK with conversation initiation data
     const call = await elevenLabsClient.conversationalAi.twilio.outboundCall({
       agentId: agentId,
       agentPhoneNumberId: phoneNumberId,
       toNumber: to_number,
+      conversationInitiationClientData: personalizationData,
     });
 
     console.log("✅ Outbound call initiated:", call);
@@ -111,6 +143,11 @@ export const outboundCall = async (req, res) => {
       success: true,
       call: call,
       message: `Outbound call initiated to ${to_number}`,
+      personalization: {
+        call_direction: "outbound",
+        patient_name: patient_name || "there",
+        call_reason: call_reason || "general",
+      },
     });
   } catch (error) {
     console.error("❌ Outbound call failed:", error);
@@ -122,16 +159,32 @@ export const outboundCall = async (req, res) => {
 };
 
 // ============================================
-// Make multiple outbound calls (batch)
+// Make multiple outbound calls (batch) with personalization
 // ============================================
 export const outboundBatchCall = async (req, res) => {
   try {
-    const { phone_numbers, agent_id, agent_phone_number_id } = req.body;
+    const { 
+      calls, // Array of { phone_number, patient_name, patient_id, call_reason }
+      phone_numbers, // Legacy support: simple array of phone numbers
+      agent_id, 
+      agent_phone_number_id,
+      default_call_reason,
+      specialty,
+    } = req.body;
 
-    if (!phone_numbers || !Array.isArray(phone_numbers) || phone_numbers.length === 0) {
+    // Support both new format (calls array with details) and legacy format (phone_numbers array)
+    const callList = calls || (phone_numbers ? phone_numbers.map(num => ({ phone_number: num })) : null);
+
+    if (!callList || !Array.isArray(callList) || callList.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "phone_numbers array is required",
+        error: "calls array or phone_numbers array is required",
+        example: {
+          calls: [
+            { phone_number: "+1234567890", patient_name: "John Doe", call_reason: "appointment_reminder" },
+            { phone_number: "+0987654321", patient_name: "Jane Smith", call_reason: "follow_up" },
+          ],
+        },
       });
     }
 
@@ -145,27 +198,41 @@ export const outboundBatchCall = async (req, res) => {
       });
     }
 
-    console.log(`📞 Initiating ${phone_numbers.length} outbound calls...`);
+    console.log(`📞 Initiating ${callList.length} OUTBOUND calls...`);
 
     const results = [];
     
-    for (const toNumber of phone_numbers) {
+    for (const callInfo of callList) {
+      const toNumber = callInfo.phone_number || callInfo;
+      
       try {
+        // Build personalization for each call
+        const personalizationData = buildOutboundCallData({
+          patientName: callInfo.patient_name || "there",
+          patientId: callInfo.patient_id || "",
+          patientPhone: toNumber,
+          callReason: callInfo.call_reason || default_call_reason || "general",
+          specialty: specialty || process.env.CURRENT_SPECIALTY || "primaryCare",
+        });
+
         const call = await elevenLabsClient.conversationalAi.twilio.outboundCall({
           agentId: agentId,
           agentPhoneNumberId: phoneNumberId,
           toNumber: toNumber,
+          conversationInitiationClientData: personalizationData,
         });
         
         results.push({
           toNumber,
+          patientName: callInfo.patient_name || "Unknown",
           success: true,
           call,
         });
-        console.log(`✅ Call initiated to ${toNumber}`);
+        console.log(`✅ Call initiated to ${toNumber} (${callInfo.patient_name || "Unknown"})`);
       } catch (err) {
         results.push({
           toNumber,
+          patientName: callInfo.patient_name || "Unknown",
           success: false,
           error: err.message,
         });
@@ -179,7 +246,7 @@ export const outboundBatchCall = async (req, res) => {
     res.json({
       success: true,
       summary: {
-        total: phone_numbers.length,
+        total: callList.length,
         successful,
         failed,
       },
@@ -223,6 +290,15 @@ export const outboundTwiml = (req, res) => {
     if (req.body.CallSid) {
       stream.parameter({ name: "call_sid", value: req.body.CallSid });
     }
+    // Mark as outbound call
+    stream.parameter({ 
+      name: "custom_data", 
+      value: JSON.stringify({ 
+        source: "twilio_outbound",
+        call_direction: "outbound",
+        timestamp: new Date().toISOString(),
+      }) 
+    });
 
     const twimlString = twiml.toString();
     console.log("📤 Outbound TwiML generated");
@@ -377,7 +453,7 @@ export const endCall = async (req, res) => {
       });
     }
 
-    console.log(`🔚 Ending call: ${call_sid}`);
+    console.log(`📴 Ending call: ${call_sid}`);
 
     await twilioClient.calls(call_sid).update({ status: 'completed' });
 
@@ -435,4 +511,22 @@ export const transferCall = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+// ============================================
+// Get available call reasons for outbound calls
+// ============================================
+export const getCallReasons = (req, res) => {
+  res.json({
+    success: true,
+    call_reasons: [
+      { id: "general", name: "General Call", description: "General purpose outbound call" },
+      { id: "appointment_reminder", name: "Appointment Reminder", description: "Remind patient of upcoming appointment" },
+      { id: "follow_up", name: "Follow Up", description: "Follow up on recent visit" },
+      { id: "results_ready", name: "Results Ready", description: "Notify patient that results are ready" },
+      { id: "reschedule", name: "Reschedule", description: "Need to reschedule appointment" },
+      { id: "wellness_check", name: "Wellness Check", description: "Check in on patient wellness" },
+      { id: "prescription", name: "Prescription Refill", description: "Prescription refill reminder" },
+    ],
+  });
 };

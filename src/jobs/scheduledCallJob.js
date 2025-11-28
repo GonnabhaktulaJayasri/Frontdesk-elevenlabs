@@ -30,7 +30,7 @@ class ScheduledCallJob {
       }
     });
     
-    console.log('✅ Scheduled call job started (runs every minute)');
+    console.log('Scheduled call job started (runs every minute)');
   }
 }
 

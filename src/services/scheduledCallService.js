@@ -1,5 +1,6 @@
 import ScheduledCall from '../models/scheduledCall.js';
 import { elevenLabsClient } from '../config/clients.js';
+import { buildOutboundCallData } from '../controllers/personalizationController.js';
 
 class ScheduledCallService {
   // Schedule a callback
@@ -40,7 +41,13 @@ class ScheduledCallService {
         appointmentId,
         patientId,
         reason: '24-hour appointment reminder',
-        metadata: { appointmentDate: date, appointmentTime: time, doctorName },
+        metadata: { 
+          appointmentDate: date, 
+          appointmentTime: time, 
+          doctorName,
+          patientName: appointmentData.patientName || '',
+          callReason: 'appointment_reminder',
+        },
         status: 'pending',
       });
       reminders.push(reminder1Day);
@@ -54,7 +61,13 @@ class ScheduledCallService {
         appointmentId,
         patientId,
         reason: '1-hour appointment reminder',
-        metadata: { appointmentDate: date, appointmentTime: time, doctorName },
+        metadata: { 
+          appointmentDate: date, 
+          appointmentTime: time, 
+          doctorName,
+          patientName: appointmentData.patientName || '',
+          callReason: 'appointment_reminder',
+        },
         status: 'pending',
       });
       reminders.push(reminder1Hour);
@@ -79,10 +92,13 @@ class ScheduledCallService {
     return scheduledCall;
   }
   
-  // Execute scheduled call
+  // Execute scheduled call - NOW WITH PERSONALIZATION!
   async executeScheduledCall(scheduledCall) {
     try {
       console.log(`📞 Executing scheduled call: ${scheduledCall._id}`);
+      console.log(`   Type: ${scheduledCall.callType}`);
+      console.log(`   Phone: ${scheduledCall.phoneNumber}`);
+      console.log(`   Reason: ${scheduledCall.reason}`);
       
       const agentId = process.env.ELEVENLABS_AGENT_ID;
       const phoneNumberId = process.env.ELEVENLABS_AGENT_PHONE_NUMBER_ID;
@@ -91,11 +107,45 @@ class ScheduledCallService {
         throw new Error('Agent ID or Phone Number ID not configured');
       }
       
-      // Make outbound call using ElevenLabs
+      // Extract personalization data from scheduled call
+      const metadata = scheduledCall.metadata || {};
+      const patientName = metadata.patientName || metadata.patient_name || 'there';
+      const callReason = metadata.callReason || metadata.call_reason || 'general';
+      const specialty = metadata.specialty || process.env.CURRENT_SPECIALTY || 'primaryCare';
+      const appointmentDate = metadata.appointmentDate || '';
+      const appointmentTime = metadata.appointmentTime || '';
+      const doctorName = metadata.doctorName || '';
+      
+      console.log(`   Patient Name: ${patientName}`);
+      console.log(`   Call Reason: ${callReason}`);
+      console.log(`   Specialty: ${specialty}`);
+      
+      // Build personalization data for the outbound call
+      const personalizationData = buildOutboundCallData({
+        patientName,
+        patientId: scheduledCall.patientId || '',
+        patientPhone: scheduledCall.phoneNumber,
+        callReason,
+        specialty,
+        appointmentDate,
+        appointmentTime,
+        doctorName,
+      });
+      
+      console.log('====================================');
+      console.log('🎯 Personalization Data Being Sent:');
+      console.log('====================================');
+      console.log('First Message:', personalizationData.overrides?.agent?.first_message);
+      console.log('Dynamic Variables:', JSON.stringify(personalizationData.dynamic_variables, null, 2));
+      console.log('====================================');
+      
+      // Make outbound call using ElevenLabs WITH PERSONALIZATION
       const call = await elevenLabsClient.conversationalAi.twilio.outboundCall({
         agentId: agentId,
         agentPhoneNumberId: phoneNumberId,
         toNumber: scheduledCall.phoneNumber,
+        // THIS IS THE KEY - passing the personalization data!
+        conversationInitiationClientData: personalizationData,
       });
       
       // Update scheduled call status
@@ -105,6 +155,7 @@ class ScheduledCallService {
       await scheduledCall.save();
       
       console.log(`✅ Scheduled call completed: ${scheduledCall._id}`);
+      console.log(`   Call SID: ${scheduledCall.callSid}`);
       return { success: true, call };
       
     } catch (error) {

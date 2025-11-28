@@ -7,6 +7,7 @@ import {
   getAllScheduledCalls,
   rescheduleCall,
   getScheduledCallsStats,
+  getCallReasons,  // NEW
 } from '../controllers/scheduledCallsController.js';
 
 const router = express.Router();
@@ -18,6 +19,9 @@ const router = express.Router();
 // Get statistics
 router.get('/stats', getScheduledCallsStats);
 
+// Get available call reasons (NEW)
+router.get('/reasons', getCallReasons);
+
 // Get upcoming scheduled calls
 router.get('/upcoming', getUpcomingScheduledCalls);
 
@@ -27,7 +31,7 @@ router.get('/', getAllScheduledCalls);
 // Get specific scheduled call by ID
 router.get('/:callId', getScheduledCallById);
 
-// Hospital schedules a call
+// Hospital schedules a call (UPDATED - now accepts personalization)
 router.post('/schedule', scheduleHospitalCall);
 
 // Reschedule a call

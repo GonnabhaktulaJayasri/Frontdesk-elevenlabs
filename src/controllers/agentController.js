@@ -117,7 +117,6 @@ export const previewSpecialties = (req, res) => {
 export const configureAgentSpecialties = async (req, res) => {
   try {
     let specialties = req.body.specialties || req.body.specialty;
-    const options = req.body.options || {};
 
     if (!specialties) {
       return res.status(400).json({
@@ -125,31 +124,11 @@ export const configureAgentSpecialties = async (req, res) => {
         error: "Specialty/specialties is required",
         availableSpecialties: Object.keys(specialtyPrompts),
         example: {
-          singleSpecialty: { 
-            specialty: "primaryCare",
-            options: { callType: "inbound" }
-          },
+          singleSpecialty: { specialty: "primaryCare" },
           multipleSpecialties: { 
-            specialties: ["primaryCare", "mentalHealth", "cardiology"],
-            options: {
-              callType: "outbound",
-              voiceId: "21m00Tcm4TlvDq8ikWAM",
-              llmModel: "gemini-2.0-flash"
-            }
+            specialties: ["primaryCare", "mentalHealth", "cardiology"] 
           },
         },
-        availableOptions: {
-          callType: "'inbound' or 'outbound' (default: 'inbound')",
-          voiceId: "ElevenLabs voice ID (default: '21m00Tcm4TlvDq8ikWAM')",
-          ttsModel: "TTS model (default: 'eleven_turbo_v2_5')",
-          llmModel: "LLM model (default: 'gemini-2.0-flash')",
-          asrProvider: "ASR provider (default: 'elevenlabs')",
-          asrQuality: "ASR quality (default: 'high')",
-          optimizeLatency: "Latency optimization 0-4 (default: 3)",
-          stability: "Voice stability 0-1 (default: 0.5)",
-          similarityBoost: "Voice similarity boost 0-1 (default: 0.75)",
-          language: "Language code (default: 'en')"
-        }
       });
     }
 
@@ -163,12 +142,9 @@ export const configureAgentSpecialties = async (req, res) => {
       });
     }
 
-    console.log(`🔥 Configuring agent for: ${specialtyArray.join(", ")}`);
-    if (options.callType) {
-      console.log(`📞 Call type: ${options.callType}`);
-    }
+    console.log(`Configuring agent for: ${specialtyArray.join(", ")}`);
 
-    const result = await configureAgent(specialtyArray, options);
+    const result = await configureAgent(specialtyArray);
 
     res.json({
       success: true,
@@ -177,8 +153,8 @@ export const configureAgentSpecialties = async (req, res) => {
         specialties: result.specialties,
         specialtyNames: result.specialtyNames,
         agentId: result.agentId,
-        callType: result.callType,
-        config: result.config,
+        toolsCount: result.toolsCount,
+        toolIds: result.toolIds,
       },
     });
   } catch (error) {

@@ -33,6 +33,8 @@ export const CLINIC_CONFIG = {
   name: "Orion West Medical Group",
   address: "1771 East Flamingo Rd",
   city: "Las Vegas",
+  timings: "Mon-Fri 8am-5pm",
+  emergencySerivices: "Call 911 for emergencies",
   phone: process.env.CLINIC_PHONE || "(555) 123-4567",
   mission: "Providing comprehensive and quality healthcare services to the uninsured and underinsured",
 };
@@ -82,87 +84,90 @@ export const specialtyPrompts = {
 };
 
 // ============================================
-// GENERATE COMBINED PROMPT
+// BASE PROMPT GENERATOR
+// This creates a direction-agnostic base prompt.
+// Direction-specific context is added at RUNTIME via:
+//   - Inbound: personalization webhook
+//   - Outbound: conversationInitiationClientData
 // ============================================
-function generateCombinedPrompt(specialties, options = {}) {
+function generateBasePrompt(specialties) {
   const specialtyNames = specialties.map(s => specialtyPrompts[s]?.name || s).join(", ");
-  const isOutbound = options.callType === 'outbound';
   
-  let prompt = `# Personality
-You are a healthcare scheduling assistant for ${CLINIC_CONFIG.name} in ${CLINIC_CONFIG.city}. ${CLINIC_CONFIG.mission}.
+  let prompt = `# Role & Identity
+You are a healthcare scheduling assistant for ${CLINIC_CONFIG.name} in ${CLINIC_CONFIG.city}. 
+${CLINIC_CONFIG.mission}.
 
-# Available Departments: ${specialtyNames}
+# Available Departments
+${specialtyNames}
+
+# Dynamic Call Context
+This prompt will be supplemented with call-specific context at runtime based on whether this is an inbound or outbound call. The additional context will include:
+- Call direction (inbound/outbound)
+- Patient information if available
+- Purpose of the call
+- Specific instructions for the call type
+
+# Available Dynamic Variables
+You may see these variables populated at runtime:
+- {{call_direction}} - "inbound" or "outbound"
+- {{patient_name}} - Patient's name if known
+- {{caller_phone}} - Phone number
+- {{call_reason}} - Purpose of outbound calls
+- {{appointment_date}}, {{appointment_time}}, {{doctor_name}} - Appointment details
 
 `;
 
-  if (isOutbound) {
-    prompt += `# OUTBOUND CALL INSTRUCTIONS
-You are making an OUTBOUND call to a patient. Follow these guidelines:
-
-## Opening Protocol
-1. Identify yourself: "Hello, this is calling from ${CLINIC_CONFIG.name}."
-2. Ask for the patient by name: "May I speak with [Patient Name]?"
-3. Verify identity: "I'm calling to help schedule your appointment. For verification, can you confirm your date of birth?"
-4. State purpose clearly: "I'm reaching out to help you schedule an appointment with our [specialty] department."
-
-## Important Outbound Guidelines
-- Be respectful of their time - ask "Is this a good time to talk?"
-- If they're busy, offer to call back: "Would you prefer I call back at a better time?"
-- Keep the call focused and efficient
-- If they don't answer, leave a brief voicemail with callback number: ${CLINIC_CONFIG.phone}
-- Never sound like a robocall - be warm and human
-- If they seem confused about why you're calling, explain: "You [were referred by your doctor / requested an appointment / are due for a follow-up]"
-
-## Handling Common Situations
-- **Wrong number**: "I apologize for the inconvenience. Have a great day!"
-- **Voicemail**: "Hello [Patient Name], this is calling from ${CLINIC_CONFIG.name}. I'm calling to help schedule your appointment. Please call us back at ${CLINIC_CONFIG.phone}. Thank you!"
-- **Patient declines**: "I understand. If you change your mind, please feel free to call us at ${CLINIC_CONFIG.phone}. Take care!"
-- **Patient is interested**: Proceed with normal workflow below
-
-`;
-  }
-  
+  // Add specialty-specific prompts
   specialties.forEach(s => {
     if (specialtyPrompts[s]) {
       prompt += specialtyPrompts[s].prompt + "\n\n";
     }
   });
-  
-  prompt += `# Workflow
-1. ${isOutbound ? 'Verify patient identity (name, DOB) using get_patient_info tool' : 'Get patient info (name, DOB) using get_patient_info tool'}
-2. Register new patient if not found using register_patient tool
-3. Check availability using check_availability tool
-4. Book appointment using book_appointment tool
-5. Confirm details and location: ${CLINIC_CONFIG.address}, ${CLINIC_CONFIG.city}
-${isOutbound ? '6. Thank them for their time and confirm they received SMS confirmation' : ''}
+
+  // Add workflow and guardrails
+  prompt += `# Standard Workflow
+1. Determine call context (inbound vs outbound from the additional context provided)
+2. For INBOUND: Ask how you can help, then get patient info (name, DOB)
+3. For OUTBOUND: Verify identity first, then proceed with call purpose
+4. Use get_patient_info tool to look up patient records
+5. Use register_patient tool if patient not found
+6. Use check_availability tool to find open slots
+7. Use book_appointment tool to schedule
+8. Always confirm details and provide location: ${CLINIC_CONFIG.address}, ${CLINIC_CONFIG.city}
 
 # Guardrails
-- No medical advice. No sensitive info beyond necessary. Never share other patient info.
-- Always use tools to confirm/book. Never make up availability.
-${isOutbound ? '- For outbound calls: Be respectful, professional, and not pushy. Patient can decline anytime.' : ''}`;
+- Never provide medical advice or diagnoses
+- Never share information about other patients
+- Always verify patient identity before accessing records
+- Use tools to check availability - never make up times
+- For emergencies (chest pain, difficulty breathing, etc.), direct to 911
+- Be warm, professional, and patient
+
+# Clinic Information
+- Name: ${CLINIC_CONFIG.name}
+- Address: ${CLINIC_CONFIG.address}, ${CLINIC_CONFIG.city}
+- Phone: ${CLINIC_CONFIG.phone}
+`;
 
   return prompt;
 }
 
 // ============================================
-// GENERATE FIRST MESSAGE
+// DEFAULT FIRST MESSAGE
+// This is overridden at runtime for both inbound and outbound
 // ============================================
-function generateFirstMessage(specialties, options = {}) {
+function generateDefaultFirstMessage(specialties) {
   const names = specialties.map(s => specialtyPrompts[s]?.name).filter(Boolean);
-  const isOutbound = options.callType === 'outbound';
-  
-  if (isOutbound) {
-    return `Hello, this is calling from ${CLINIC_CONFIG.name}. I'm reaching out to help you schedule an appointment. May I speak with you for a moment?`;
-  }
   
   if (names.length === 1) {
     return `Hello! Thank you for calling ${CLINIC_CONFIG.name} ${names[0]}. How may I help you today?`;
   } else if (names.length === 2) {
     return `Hello! Thank you for calling ${CLINIC_CONFIG.name}. We offer ${names[0]} and ${names[1]} services. How may I help you today?`;
-  } else {
+  } else if (names.length > 2) {
     const last = names.pop();
     return `Hello! Thank you for calling ${CLINIC_CONFIG.name}. We offer ${names.join(", ")}, and ${last} services. How may I help you today?`;
   }
+  return `Hello! Thank you for calling ${CLINIC_CONFIG.name}. How may I help you today?`;
 }
 
 // ============================================
@@ -182,22 +187,8 @@ function normalizeSpecialtyKey(specialty) {
 // ============================================
 // MAIN CONFIGURATION FUNCTION
 // ============================================
-export async function configureAgent(specialties = ["primaryCare"], options = {}) {
+export async function configureAgent(specialties = ["primaryCare"]) {
   const specialtyArray = Array.isArray(specialties) ? specialties : [specialties];
-  
-  // Default options - ensure all values are explicitly set
-  const config = {
-    callType: options.callType || 'inbound',
-    voiceId: options.voiceId || "lyPbHf3pO5t4kYZYenaY",
-    ttsModel: options.ttsModel || "eleven_turbo_v2_5",
-    llmModel: options.llmModel || "gemini-2.0-flash",
-    asrProvider: options.asrProvider || "elevenlabs",
-    asrQuality: options.asrQuality || "high",
-    optimizeLatency: options.optimizeLatency !== undefined ? options.optimizeLatency : 3,
-    stability: options.stability !== undefined ? options.stability : 0.5,
-    similarityBoost: options.similarityBoost !== undefined ? options.similarityBoost : 0.75,
-    language: options.language || "en",
-  };
   
   if (!AGENT_ID || !API_KEY || !SERVER_URL) {
     throw new Error("Missing: ELEVENLABS_AGENT_ID, ELEVENLABS_API_KEY, SERVER_URL");
@@ -215,88 +206,85 @@ export async function configureAgent(specialties = ["primaryCare"], options = {}
   console.log("🔧 Configuring ElevenLabs Agent");
   console.log("========================================");
   console.log(`Agent ID: ${AGENT_ID}`);
-  console.log(`Call Type: ${config.callType.toUpperCase()}`);
   console.log(`Specialties: ${specialtyNames}`);
-  console.log(`LLM Model: ${config.llmModel}`);
-  console.log(`Voice ID: ${config.voiceId}`);
-  console.log(`TTS Model: ${config.ttsModel}`);
-  console.log(`Server URL: ${SERVER_URL}\n`);
+  console.log(`Server URL: ${SERVER_URL}`);
+  console.log("\n");
 
   try {
     const client = await getClientInstance();
     
-    const combinedPrompt = generateCombinedPrompt(normalizedSpecialties, config);
-    const firstMessage = generateFirstMessage(normalizedSpecialties, config);
+    // Generate base prompt (direction-agnostic)
+    const basePrompt = generateBasePrompt(normalizedSpecialties);
     
-    console.log("📝 Generated prompt length:", combinedPrompt.length, "characters");
-    console.log("💬 First message:", firstMessage);
-    if (config.callType === 'outbound') {
-      console.log("📞 Outbound call instructions: ENABLED");
-    }
+    // Default first message (will be overridden at runtime)
+    const defaultFirstMessage = generateDefaultFirstMessage(normalizedSpecialties);
+    
+    console.log("📝 Base prompt length:", basePrompt.length, "characters");
+    console.log("💬 Default first message:", defaultFirstMessage);
     
     console.log("\n📥 Fetching current agent...");
     const currentAgent = await client.conversationalAi.agents.get(AGENT_ID);
     console.log(`✅ Agent found: ${currentAgent.name || "Unnamed"}`);
 
     console.log("\n🔄 Updating agent configuration...");
-    
-    // Use snake_case field names as expected by the API
-    const updatePayload = {
-      conversation_config: {
+    await client.conversationalAi.agents.update(AGENT_ID, {
+      conversationConfig: {
         agent: {
           prompt: {
-            prompt: combinedPrompt,
-            llm: config.llmModel,
+            prompt: basePrompt,
+            llm: "gemini-2.0-flash",
           },
-          first_message: firstMessage,
-          language: config.language,
+          firstMessage: defaultFirstMessage,
+          language: "en",
         },
-        tts: {
-          voice_id: config.voiceId,
-          model_id: config.ttsModel,
-          optimize_streaming_latency: config.optimizeLatency,
-          stability: config.stability,
-          similarity_boost: config.similarityBoost,
+        tts: currentAgent.conversationConfig?.tts || {
+          voiceId: "lyPbHf3pO5t4kYZYenaY",
+          modelId: "eleven_turbo_v2_5",
+          optimizeStreamingLatency: 3,
         },
-        asr: {
-          quality: config.asrQuality,
-          provider: config.asrProvider,
+        asr: currentAgent.conversationConfig?.asr || {
+          quality: "high",
+          provider: "elevenlabs",
         },
       },
-    };
+    });
 
-    console.log("📋 Configuration values:");
-    console.log(`  Voice ID: ${updatePayload.conversation_config.tts.voice_id}`);
-    console.log(`  TTS Model: ${updatePayload.conversation_config.tts.model_id}`);
-    console.log(`  LLM: ${updatePayload.conversation_config.agent.prompt.llm}`);
-    console.log(`  Stability: ${updatePayload.conversation_config.tts.stability}`);
-    console.log(`  Similarity: ${updatePayload.conversation_config.tts.similarity_boost}`);
-    console.log(`  Latency: ${updatePayload.conversation_config.tts.optimize_streaming_latency}`);
-    console.log(`  ASR Provider: ${updatePayload.conversation_config.asr.provider}`);
-    console.log(`  ASR Quality: ${updatePayload.conversation_config.asr.quality}`);
-    console.log(`  Language: ${updatePayload.conversation_config.agent.language}`);
-
-    await client.conversationalAi.agents.update(AGENT_ID, updatePayload);
+    // Store current specialty in env for webhook reference
+    process.env.CURRENT_SPECIALTY = normalizedSpecialties.join(",");
 
     console.log("\n========================================");
     console.log("✅ Agent Configuration Complete!");
     console.log("========================================");
-    console.log(`\n📋 Summary:`);
-    console.log(`  ✓ Call Type: ${config.callType}`);
+    
+    console.log("\n📋 Summary:");
     console.log(`  ✓ Specialties: ${specialtyNames}`);
-    console.log(`  ✓ System prompt updated`);
-    console.log(`  ✓ First message updated`);
-    console.log(`  ✓ Voice: ${config.voiceId}`);
-    console.log(`  ✓ LLM: ${config.llmModel}\n`);
+    console.log(`  ✓ Base prompt configured`);
+    console.log(`  ✓ Default first message set`);
+    
+    console.log("\n" + "=".repeat(50));
+    console.log("📌 REQUIRED: Configure ElevenLabs Personalization");
+    console.log("=".repeat(50));
+    console.log("\nFor INBOUND calls to work with custom first messages:");
+    console.log("1. Go to ElevenLabs Dashboard → Your Agent → Settings");
+    console.log("2. Navigate to 'Security' tab");
+    console.log("3. Enable 'Fetch conversation initiation data for inbound Twilio calls'");
+    console.log(`4. Set webhook URL to:\n   ${SERVER_URL}/api/calls/personalization-webhook`);
+    console.log("5. Enable these override fields:");
+    console.log("   ✓ first_message");
+    console.log("   ✓ prompt");
+    console.log("\nFor OUTBOUND calls:");
+    console.log("  → Personalization is automatic via SDK");
+    console.log("  → Uses conversationInitiationClientData");
+    console.log("\n");
 
     return {
       success: true,
       specialties: normalizedSpecialties,
       specialtyNames: normalizedSpecialties.map(s => specialtyPrompts[s]?.name),
       agentId: AGENT_ID,
-      callType: config.callType,
-      config: config,
-      message: `Agent configured for ${specialtyNames} (${config.callType})`,
+      message: `Agent configured for ${specialtyNames}`,
+      personalizationWebhook: `${SERVER_URL}/api/calls/personalization-webhook`,
+      note: "Remember to configure the webhook in ElevenLabs dashboard for inbound call personalization",
     };
   } catch (error) {
     console.error("\n❌ Error:", error.message);
@@ -338,34 +326,23 @@ async function runCLI() {
   if (args.length === 0) {
     console.log("\n🏥 Multi-Specialty Agent Configuration");
     console.log("=============================================");
-    console.log("\nUsage: node configureSpecialtyAgent.js <specialty1> [specialty2] ... [--outbound]");
+    console.log("\nUsage: node agentService.js <specialty1> [specialty2] ...");
     console.log("\nAvailable:");
     Object.entries(specialtyPrompts).forEach(([k, v]) => console.log(`  - ${k}: ${v.name}`));
-    console.log("\nOptions:");
-    console.log("  --outbound    Configure for outbound calls");
-    console.log("  --inbound     Configure for inbound calls (default)");
     console.log("\nExamples:");
-    console.log("  node configureSpecialtyAgent.js primaryCare");
-    console.log("  node configureSpecialtyAgent.js primaryCare mentalHealth --outbound");
-    console.log("  node configureSpecialtyAgent.js cardiology radiology\n");
+    console.log("  node agentService.js primaryCare");
+    console.log("  node agentService.js primaryCare mentalHealth cardiology\n");
     return;
   }
 
-  const specialties = args.filter(arg => !arg.startsWith('--'));
-  const isOutbound = args.includes('--outbound');
-  
-  const options = {
-    callType: isOutbound ? 'outbound' : 'inbound'
-  };
-
   try {
-    await configureAgent(specialties, options);
+    await configureAgent(args);
   } catch (error) {
     console.error("Failed:", error.message);
     process.exit(1);
   }
 }
 
-if (process.argv[1]?.includes("agentService") || process.argv[1]?.includes("configureSpecialtyAgent")) {
+if (process.argv[1]?.includes("agentService")) {
   runCLI();
 }

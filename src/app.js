@@ -9,6 +9,9 @@ import agentConfigRoutes from "../src/routes/agent.js";
 import scheduledCallRoutes from "../src/routes/scheduledCalls.js";
 import voiceRoutes from "./routes/voices.js"; 
 import connectDB from "./config/db.js";
+import appointmentRoutes from './routes/appointments.js';
+import staffRoutes from './routes/staff.js';
+import patientRoutes from './routes/patients.js';
 
 const app = express();
 
@@ -35,6 +38,13 @@ app.use("/api/tools", toolsRoutes);
 app.use("/api/agent", agentConfigRoutes);
 app.use("/api/scheduled-calls", scheduledCallRoutes);
 app.use("/api/voices", voiceRoutes);
+app.use('/api/appointments', appointmentRoutes);
+
+// Staff & Doctor management
+app.use('/api/staff', staffRoutes);
+
+// Patient management
+app.use('/api/patients', patientRoutes);
 
 // Error handling
 app.use((error, req, res, next) => {
